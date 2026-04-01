@@ -3,15 +3,13 @@ import express from "express"
 import cors from "cors"
  
 import apiRouter from "./routes/apiRoutes.js"
- import dotenv from "dotenv";
+import dotenv from "dotenv";
 import path from "path";
 import { fileURLToPath } from "url";
-
-// ES Module me __dirname fix
+ 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
-
-// dotenv load
+ 
 dotenv.config({ path: path.join(__dirname, ".env") }); 
 const app=express()
  
