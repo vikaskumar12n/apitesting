@@ -268,4 +268,81 @@ export const getData = async (req, res) => {
         });
     }
 };
- 
+export const searchData = async (req, res) => {
+    try {
+        const { collection } = req.params;
+
+        const search = (req.query.search || "").toLowerCase().trim();
+
+        if (!search) {
+            return res.status(400).json({
+                success: false,
+                message: "Search query required"
+            });
+        }
+
+        const command = new GetObjectCommand({
+            Bucket: process.env.AWS_BUCKET_NAME,
+            Key: collection.trim(),
+        });
+
+        const data = await s3.send(command);
+
+        if (!data?.Body) {
+            return res.json({ success: true, data: [] });
+        }
+
+        const bodyContents = await streamToString(data.Body);
+        const jsonData = JSON.parse(bodyContents);
+
+        // ---------------- FLATTEN COLLEGES ----------------
+        let allColleges = [];
+
+        let finalData = Array.isArray(jsonData)
+            ? jsonData
+            : Array.isArray(jsonData?.data)
+                ? jsonData.data
+                : Object.values(jsonData || {});
+
+        finalData.forEach(item => {
+            if (item?.college_details) {
+                allColleges.push(item.college_details);
+            }
+
+            if (Array.isArray(item)) {
+                allColleges.push(...item);
+            }
+        });
+
+        // ---------------- DEEP SEARCH FUNCTION ----------------
+        const deepSearch = (obj, searchText) => {
+            if (!obj) return false;
+
+            if (typeof obj !== "object") {
+                return String(obj).toLowerCase().includes(searchText);
+            }
+
+            return Object.values(obj).some(value =>
+                deepSearch(value, searchText)
+            );
+        };
+
+        // ---------------- SEARCH ----------------
+        const result = allColleges.filter(item =>
+            deepSearch(item, search)
+        );
+
+        return res.json({
+            success: true,
+            total: result.length,
+            data: result
+        });
+
+    } catch (err) {
+        console.log("SEARCH ERROR:", err);
+        return res.status(500).json({
+            success: false,
+            message: err.message
+        });
+    }
+};
