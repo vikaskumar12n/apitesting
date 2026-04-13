@@ -46,7 +46,7 @@ export const updateResume = async (req, res) => {
         await writeJsonToS3(key, updatedData);
 
         res.json({
-            message: "Resume updated successfully ✅"
+            message: "Resume updated successfully "
         });
 
     } catch (err) {
