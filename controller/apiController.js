@@ -3,14 +3,14 @@ import { S3Client, PutObjectCommand, GetObjectCommand } from "@aws-sdk/client-s3
 import { Readable } from "stream";
 import { readJsonFromS3, writeJsonToS3 } from "../utils/s3Helper.js";
 import bcrypt from "bcrypt"
- import jwt from "jsonwebtoken"
+import jwt from "jsonwebtoken"
 import dotenv from "dotenv"
 dotenv.config()
 let progress = {
     totalInserted: 0,
     status: "idle"
 };
- 
+
 const s3 = new S3Client({
     region: process.env.AWS_REGION,
     credentials: {
@@ -46,14 +46,14 @@ const saveLargeData = async (url) => {
                 ...item,
                 _order: index
             }));
-        } 
+        }
         //   Case 2: API me data array ke andar hai
         else if (apiData.data && Array.isArray(apiData.data)) {
             finalData = apiData.data.map((item, index) => ({
                 ...item,
                 _order: index
             }));
-        } 
+        }
         //   Case 3: Object hai (tumhara case )
         else {
             const entries = Object.entries(apiData);
@@ -76,7 +76,7 @@ const saveLargeData = async (url) => {
 
         await s3.send(new PutObjectCommand({
             Bucket: process.env.AWS_BUCKET_NAME,
-            Key: collectionName ,  
+            Key: collectionName,
             Body: JSON.stringify(finalData, null, 2),
             ContentType: "application/json",
         }));
@@ -142,10 +142,10 @@ export const registerUser = async (req, res) => {
 export const loginUser = async (req, res) => {
     try {
         const { email, password } = req.body;
- 
+
         if (!email || !password) {
             return res.status(400).json({ message: "Email & password required " });
-        } 
+        }
         let users = await readJsonFromS3("users");
 
         const user = users.find(u => u.email === email);
@@ -153,12 +153,12 @@ export const loginUser = async (req, res) => {
         if (!user) {
             return res.status(400).json({ message: "User not found " });
         }
- 
+
         const isMatch = await bcrypt.compare(password, user.password);
 
         if (!isMatch) {
             return res.status(400).json({ message: "Invalid password " });
-        } 
+        }
         const token = jwt.sign(
             {
                 id: user.id,
@@ -172,7 +172,7 @@ export const loginUser = async (req, res) => {
 
         res.json({
             message: "Login successful  ",
-            token,           
+            token,
             user: {
                 id: user.id,
                 fullname: user.fullname,
@@ -234,11 +234,11 @@ export const getData = async (req, res) => {
         //  Case 1: already array
         if (Array.isArray(jsonData)) {
             finalData = jsonData;
-        } 
+        }
         //  Case 2: nested array
         else if (jsonData.data && Array.isArray(jsonData.data)) {
             finalData = jsonData.data;
-        } 
+        }
         //  Case 3: object → convert to array
         else {
             finalData = Object.entries(jsonData).map(([key, value], index) => ({
@@ -268,18 +268,21 @@ export const getData = async (req, res) => {
         });
     }
 };
+
 export const searchData = async (req, res) => {
     try {
         const { collection } = req.params;
 
         const search = (req.query.search || "").toLowerCase().trim();
 
-        if (!search) {
-            return res.status(400).json({
-                success: false,
-                message: "Search query required"
-            });
-        }
+        //  PARSE FILTERS (filters[field]=value)
+        let filters = {};
+        Object.keys(req.query).forEach(key => {
+            if (key.startsWith("filters[")) {
+                const field = key.match(/filters\[(.*)\]/)[1];
+                filters[field] = req.query[key];
+            }
+        });
 
         const command = new GetObjectCommand({
             Bucket: process.env.AWS_BUCKET_NAME,
@@ -289,52 +292,129 @@ export const searchData = async (req, res) => {
         const data = await s3.send(command);
 
         if (!data?.Body) {
-            return res.json({ success: true, data: [] });
+            return res.json({ success: true, total: 0, data: [] });
         }
 
         const bodyContents = await streamToString(data.Body);
         const jsonData = JSON.parse(bodyContents);
 
-        // ---------------- FLATTEN COLLEGES ----------------
+        //  EXTRACT ALL COLLEGES (UNIVERSAL)
         let allColleges = [];
 
-        let finalData = Array.isArray(jsonData)
-            ? jsonData
-            : Array.isArray(jsonData?.data)
-                ? jsonData.data
-                : Object.values(jsonData || {});
+        const extractColleges = (data) => {
+            if (!data) return;
 
-        finalData.forEach(item => {
-            if (item?.college_details) {
-                allColleges.push(item.college_details);
+            if (Array.isArray(data)) {
+                data.forEach(item => extractColleges(item));
+            } else if (typeof data === "object") {
+
+                if (Array.isArray(data.colleges)) {
+                    allColleges.push(...data.colleges);
+                }
+
+                if (data.college_details) {
+                    allColleges.push(data.college_details);
+                }
+
+                if (data.id && (data.name || data.college_info)) {
+                    allColleges.push(data);
+                }
+
+                Object.values(data).forEach(val =>
+                    extractColleges(val)
+                );
             }
+        };
 
-            if (Array.isArray(item)) {
-                allColleges.push(...item);
-            }
-        });
+        extractColleges(jsonData);
 
-        // ---------------- DEEP SEARCH FUNCTION ----------------
-        const deepSearch = (obj, searchText) => {
+        console.log("TOTAL COLLEGES:", allColleges.length);
+
+        if (allColleges.length === 0) {
+            return res.json({
+                success: true,
+                message: "No colleges extracted",
+                data: []
+            });
+        }
+
+        //  DEEP SEARCH
+        const deepSearch = (obj, text) => {
             if (!obj) return false;
 
             if (typeof obj !== "object") {
-                return String(obj).toLowerCase().includes(searchText);
+                return String(obj).toLowerCase().includes(text);
             }
 
-            return Object.values(obj).some(value =>
-                deepSearch(value, searchText)
+            if (Array.isArray(obj)) {
+                return obj.some(v => deepSearch(v, text));
+            }
+
+            return Object.values(obj).some(v =>
+                deepSearch(v, text)
             );
         };
 
-        // ---------------- SEARCH ----------------
-        const result = allColleges.filter(item =>
-            deepSearch(item, search)
+        //  UNIVERSAL FILTER (ANY FIELD)
+        const matchFieldAnywhere = (obj, field, value) => {
+            if (!obj) return false;
+
+            if (typeof obj !== "object") return false;
+
+            for (let key in obj) {
+                const val = obj[key];
+
+                // match key + value
+                if (
+                    key.toLowerCase() === field.toLowerCase() &&
+                    String(val).toLowerCase().includes(value)
+                ) {
+                    return true;
+                }
+
+                // recursion
+                if (typeof val === "object") {
+                    if (matchFieldAnywhere(val, field, value)) {
+                        return true;
+                    }
+                }
+            }
+
+            return false;
+        };
+
+        let result = allColleges;
+
+        // 🔍 APPLY SEARCH
+        if (search) {
+            result = result.filter(item =>
+                deepSearch(item, search)
+            );
+        }
+
+        console.log("AFTER SEARCH:", result.length);
+
+        // 🎯 APPLY FILTERS (ANY FIELD)
+        Object.keys(filters).forEach(field => {
+            const value = String(filters[field]).toLowerCase().trim();
+
+            result = result.filter(item =>
+                matchFieldAnywhere(item, field, value)
+            );
+        });
+
+        console.log("FILTERS:", filters);
+        console.log("AFTER FILTER:", result.length);
+
+        //  REMOVE DUPLICATES (IMPORTANT)
+        result = Array.from(
+            new Map(result.map(item => [item.id, item])).values()
         );
 
         return res.json({
             success: true,
             total: result.length,
+            filtersApplied: filters,
             data: result
         });
 
