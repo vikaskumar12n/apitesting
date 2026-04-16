@@ -18,8 +18,7 @@ const s3 = new S3Client({
         secretAccessKey: process.env.AWS_SECRET_KEY,
     },
 });
-
-
+ 
 const streamToString = async (stream) => {
     return new Promise((resolve, reject) => {
         const chunks = [];
@@ -28,9 +27,7 @@ const streamToString = async (stream) => {
         stream.on("end", () => resolve(Buffer.concat(chunks).toString("utf-8")));
         stream.on("close", () => resolve(Buffer.concat(chunks).toString("utf-8"))); //   fix
     });
-};
-
-
+}; 
 const saveLargeData = async (url) => {
     try {
         progress.status = "running";
