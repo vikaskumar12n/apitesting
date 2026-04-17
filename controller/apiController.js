@@ -199,7 +199,12 @@ export const startSaving = async (req, res) => {
     });
 };
 export const getData = async (req, res) => {
-    
+
+      const apiKey = req.headers["x-api-key"];
+
+    if (apiKey !== process.env.API_KEY) {
+        return res.status(403).json({ message: "Forbidden" });
+    }
     const { collection } = req.params;
 
     if (!collection) {
