@@ -14,7 +14,12 @@ const __dirname = path.dirname(__filename);
 dotenv.config({ path: path.join(__dirname, ".env") }); 
 const app=express()
  
-app.use(cors())
+app.use(cors({
+    origin: ['http://localhost:5173', 'http://localhost:3000'], // Frontend URLs
+    methods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS'],
+    allowedHeaders: ['Content-Type', 'Authorization'],
+    credentials: true
+}))
 app.use(express.json())
 app.use("/api",resumeRoutes)
 app.use("/api",routers)

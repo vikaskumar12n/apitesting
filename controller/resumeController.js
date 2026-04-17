@@ -29,7 +29,7 @@ export const getAllResumes = async (req, res) => {
         // 2️⃣ Read all files
         const allData = [];
 
-        for (let file of files) {
+        for (let file of files) {   
             const data = await readJsonFromS3(file.Key);
             allData.push(data);
         }
