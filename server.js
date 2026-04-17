@@ -6,7 +6,7 @@ import apiRouter from "./routes/apiRoutes.js"
 import routers from "./routes/review.js"
 import dotenv from "dotenv";
 import path from "path";
-import helmet from "helmet";
+
 import { fileURLToPath } from "url";
  
 const __filename = fileURLToPath(import.meta.url);
@@ -14,7 +14,7 @@ const __dirname = path.dirname(__filename);
  
 dotenv.config({ path: path.join(__dirname, ".env") }); 
 const app=express()
- app.use(helmet());
+ 
 app.use(cors({
     origin: ['http://localhost:5173', 'http://localhost:3000',
            'https://rb-frontend-rosy.vercel.app',      
