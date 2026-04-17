@@ -1,4 +1,4 @@
-import { S3Client, GetObjectCommand, PutObjectCommand } from "@aws-sdk/client-s3";
+import { S3Client, GetObjectCommand,ListObjectsV2Command, PutObjectCommand } from "@aws-sdk/client-s3";
 import dotenv from "dotenv"
 dotenv.config()
 const s3 = new S3Client({
@@ -16,6 +16,18 @@ const streamToString = async (stream) => {
         stream.on("error", reject);
         stream.on("end", () => resolve(Buffer.concat(chunks).toString("utf-8")));
     });
+};
+
+
+export const listObjects = async (prefix) => {
+  const command = new ListObjectsV2Command({
+    Bucket: process.env.AWS_BUCKET_NAME,
+    Prefix: prefix
+  });
+
+  const response = await s3.send(command);
+
+  return response.Contents || [];  
 };
 
 // ✅ READ JSON

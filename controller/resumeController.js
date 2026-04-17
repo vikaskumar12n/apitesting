@@ -1,16 +1,16 @@
-import { readJsonFromS3, writeJsonToS3 } from "../utils/s3Helper.js";
+import { readJsonFromS3,listObjects, writeJsonToS3 } from "../utils/s3Helper.js";
 
 export const saveResume = async (req, res) => {
-    try {
-        // const userId = req.user.id;
+    try { 
         const resumeData = req.body;
 
-        const key = `resumes/${Date.now()}.json`;
+        const key = `resumes/${Date.now()}.json`; // 👈 FIX
 
         await writeJsonToS3(key, resumeData);
 
         res.json({
-            message: "Resume saved successfully ✅"
+            message: "Resume saved successfully ✅",
+            resumeData
         });
 
     } catch (err) {
@@ -19,19 +19,26 @@ export const saveResume = async (req, res) => {
     }
 };
 
-export const getResume = async (req, res) => {
+export const getAllResumes = async (req, res) => {
     try {
-        const userId = req.user.id;
+        const prefix = "resumes/";
 
-        const key = `resumes/${userId}.json`;
+        // 1️⃣ Get all files
+        const files = await listObjects(prefix);
 
-        const data = await readJsonFromS3(key);
+        // 2️⃣ Read all files
+        const allData = [];
 
-        res.json({ data });
+        for (let file of files) {
+            const data = await readJsonFromS3(file.Key);
+            allData.push(data);
+        }
+
+        res.json({ data: allData });
 
     } catch (err) {
         console.log(err);
-        res.status(500).json({ message: "Error fetching resume" });
+        res.status(500).json({ message: "Error fetching resumes" });
     }
 };
 

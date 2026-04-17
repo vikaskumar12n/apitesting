@@ -399,9 +399,7 @@ export const searchData = async (req, res) => {
                 matchFieldAnywhere(item, field, value)
             );
         });
-
-        console.log("FILTERS:", filters);
-        console.log("AFTER FILTER:", result.length);
+ 
 
         //  REMOVE DUPLICATES (IMPORTANT)
         result = Array.from(
@@ -410,8 +408,6 @@ export const searchData = async (req, res) => {
 
         return res.json({
             success: true,
-            total: result.length,
-            filtersApplied: filters,
             data: result
         });
 
