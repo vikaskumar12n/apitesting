@@ -19,6 +19,54 @@ export const saveResume = async (req, res) => {
     }
 };
 
+export const Enquery = async (req, res) => {
+  const { fullname, email, subject, message } = req.body;
+
+  try {
+    // validation
+    if (!fullname || !message) {
+      return res.status(400).json({
+        success: false,
+        message: "Fullname and Message fields are required",
+      });
+    }
+
+    // fetch existing data from S3
+    let reviews = await readJsonFromS3("review");
+
+    if (!Array.isArray(reviews)) {
+      reviews = [];
+    }
+
+    const newReview = {
+      id: Date.now().toString(),
+      fullname: fullname.trim(),
+      email: email ? email.toLowerCase().trim() : null,
+      subject: subject ? subject.trim() : null,
+      message: message.trim(),
+      createdAt: new Date().toISOString(),
+    };
+
+    reviews.push(newReview);
+
+    await writeJsonToS3("review", reviews);
+
+    return res.status(201).json({
+      success: true,
+      message: "Query submitted successfully",
+      data: newReview,
+    });
+
+  } catch (err) {
+    console.log("Enquery Error:", err);
+
+    return res.status(500).json({
+      success: false,
+      message: "Server error",
+    });
+  }
+};
+
 export const getAllResumes = async (req, res) => {
     try {
         const prefix = "resumes/";
