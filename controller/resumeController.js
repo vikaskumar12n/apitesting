@@ -31,15 +31,9 @@ export const Enquery = async (req, res) => {
       });
     }
 
-    // fetch existing data from S3
-    let reviews = await readJsonFromS3("review");
-
-    if (!Array.isArray(reviews)) {
-      reviews = [];
-    }
-
+    const id= Date.now().toString();
     const newReview = {
-      id: Date.now().toString(),
+      id,
       fullname: fullname.trim(),
       email: email ? email.toLowerCase().trim() : null,
       subject: subject ? subject.trim() : null,
@@ -47,9 +41,11 @@ export const Enquery = async (req, res) => {
       createdAt: new Date().toISOString(),
     };
 
-    reviews.push(newReview);
+    // 👉 unique file name
+    const fileName = `enquiry/${Date.now()}.json`;
 
-    await writeJsonToS3("review", reviews);
+    // 👉 save single object
+    await writeJsonToS3(fileName, newReview);
 
     return res.status(201).json({
       success: true,
@@ -59,6 +55,35 @@ export const Enquery = async (req, res) => {
 
   } catch (err) {
     console.log("Enquery Error:", err);
+
+    return res.status(500).json({
+      success: false,
+      message: "Server error",
+    });
+  }
+};
+export const getEnquiryById = async (req, res) => {
+ 
+  const { id } = req.params;
+
+  try {
+    const fileName = `enquiry/${id}.json`; 
+    const data = await readJsonFromS3(fileName);
+  
+    if (!data) {
+      return res.status(404).json({
+        success: false,
+        message: "Not found",
+      });
+    }
+
+    return res.status(200).json({
+      success: true,
+      data,
+    });
+
+  } catch (err) {
+    console.log("GET Error:", err);
 
     return res.status(500).json({
       success: false,
