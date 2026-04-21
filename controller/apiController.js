@@ -182,6 +182,65 @@ export const loginUser = async (req, res) => {
         res.status(500).json({ message: "Server error" });
     }
 };
+export const updateUser = async (req, res) => {
+    try {
+        const { id } = req.params;
+        const { fullname, email, password } = req.body;
+
+        let users = await readJsonFromS3("users");
+
+        const userIndex = users.findIndex(u => u.id === id);
+
+        if (userIndex === -1) {
+            return res.status(404).json({ message: "User not found" });
+        }
+
+        // update fields
+        if (fullname) users[userIndex].fullname = fullname;
+        if (email) users[userIndex].email = email;
+
+        if (password) {
+            const hashedPassword = await bcrypt.hash(password, 10);
+            users[userIndex].password = hashedPassword;
+        }
+
+        await writeJsonToS3("users", users);
+
+        res.json({
+            message: "User updated successfully",
+            user: users[userIndex]
+        });
+
+    } catch (err) {
+        console.log(err);
+        res.status(500).json({ message: "Server error" });
+    }
+};
+export const deleteUser = async (req, res) => {
+    try {
+        const { id } = req.params;
+
+        let users = await readJsonFromS3("users");
+
+        const newUsers = users.filter(u => u.id !== id);
+
+        if (users.length === newUsers.length) {
+            return res.status(404).json({ message: "User not found" });
+        }
+
+        await writeJsonToS3("users", newUsers);
+
+        res.json({
+            message: "User deleted successfully"
+        });
+
+    } catch (err) {
+        console.log(err);
+        res.status(500).json({ message: "Server error" });
+    }
+};
+
+
 export const startSaving = async (req, res) => {
     console.log(" POST /api/save hit");
     console.log("Request body:", req.body);
