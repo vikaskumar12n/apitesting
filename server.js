@@ -18,7 +18,8 @@ const app=express()
 app.use(cors({
     origin: ['http://localhost:5173', 'http://localhost:3000',
            'https://rb-frontend-rosy.vercel.app',      
-        'https://rb-frontend-ea4w.vercel.app'
+        'https://rb-frontend-ea4w.vercel.app',
+         'https://edumitrahub.com'
     ], // Frontend URLs
     methods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS'],
     allowedHeaders: ['Content-Type', 'Authorization'],
