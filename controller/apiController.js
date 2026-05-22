@@ -88,74 +88,87 @@ const saveLargeData = async (url) => {
         console.log("Error:", err.message);
     }
 };
+
+// User Auth Controller 
 export const registerUser = async (req, res) => {
     try {
-        const { fullname, email, password, confirmPassword } = req.body;
+        const { fullname, email, password, confirmPassword, mobile, address } = req.body;
 
-        //  validation
-        if (!fullname || !email || !password || !confirmPassword) {
-            return res.status(400).json({ message: "All fields required " });
+        // validation
+        if (!fullname || !email || !password || !confirmPassword || !mobile || !address) {
+            return res.status(400).json({ message: "All fields required" });
         }
 
-        //  password match check
+        // password match check
         if (password !== confirmPassword) {
-            return res.status(400).json({ message: "Passwords do not match " });
+            return res.status(400).json({ message: "Passwords do not match" });
         }
 
-        //  S3 se users read
+        // read users from S3
         let users = await readJsonFromS3("users");
 
-        //  check existing
+        // check existing user
         const exist = users.find(u => u.email === email);
+
         if (exist) {
-            return res.status(400).json({ message: "User already exists " });
+            return res.status(400).json({ message: "User already exists" });
         }
 
-        // 🔐 hash password
+        // hash password
         const hashedPassword = await bcrypt.hash(password, 10);
 
         const newUser = {
             id: Date.now().toString(),
             fullname,
             email,
+            mobile,
+            address,
             password: hashedPassword
         };
 
         users.push(newUser);
 
-        //  S3 me save
+        // save to S3
         await writeJsonToS3("users", users);
 
         res.json({
-            message: "User registered successfully ",
-            user: newUser
+            message: "User registered successfully",
+            user: {
+                id: newUser.id,
+                fullname: newUser.fullname,
+                email: newUser.email,
+                mobile: newUser.mobile,
+                address: newUser.address
+            }
         });
 
     } catch (err) {
         console.log(err);
         res.status(500).json({ message: "Server error" });
     }
-};
+}; 
 export const loginUser = async (req, res) => {
     try {
         const { email, password } = req.body;
 
         if (!email || !password) {
-            return res.status(400).json({ message: "Email & password required " });
+            return res.status(400).json({ message: "Email & password required" });
         }
+
         let users = await readJsonFromS3("users");
 
         const user = users.find(u => u.email === email);
 
         if (!user) {
-            return res.status(400).json({ message: "User not found " });
+            return res.status(400).json({ message: "User not found" });
         }
 
         const isMatch = await bcrypt.compare(password, user.password);
 
         if (!isMatch) {
-            return res.status(400).json({ message: "Invalid password " });
+            return res.status(400).json({ message: "Invalid password" });
         }
+
         const token = jwt.sign(
             {
                 id: user.id,
@@ -168,12 +181,14 @@ export const loginUser = async (req, res) => {
         );
 
         res.json({
-            message: "Login successful  ",
+            message: "Login successful",
             token,
             user: {
                 id: user.id,
                 fullname: user.fullname,
-                email: user.email
+                email: user.email,
+                mobile: user.mobile,
+                address: user.address
             }
         });
 
@@ -181,11 +196,11 @@ export const loginUser = async (req, res) => {
         console.log(err);
         res.status(500).json({ message: "Server error" });
     }
-};
+}; 
 export const updateUser = async (req, res) => {
     try {
         const { id } = req.params;
-        const { fullname, email, password } = req.body;
+        const { fullname, email, password, mobile, address } = req.body;
 
         let users = await readJsonFromS3("users");
 
@@ -198,6 +213,8 @@ export const updateUser = async (req, res) => {
         // update fields
         if (fullname) users[userIndex].fullname = fullname;
         if (email) users[userIndex].email = email;
+        if (mobile) users[userIndex].mobile = mobile;
+        if (address) users[userIndex].address = address;
 
         if (password) {
             const hashedPassword = await bcrypt.hash(password, 10);
@@ -208,14 +225,20 @@ export const updateUser = async (req, res) => {
 
         res.json({
             message: "User updated successfully",
-            user: users[userIndex]
+            user: {
+                id: users[userIndex].id,
+                fullname: users[userIndex].fullname,
+                email: users[userIndex].email,
+                mobile: users[userIndex].mobile,
+                address: users[userIndex].address
+            }
         });
 
     } catch (err) {
         console.log(err);
         res.status(500).json({ message: "Server error" });
     }
-};
+}; 
 export const deleteUser = async (req, res) => {
     try {
         const { id } = req.params;
@@ -240,7 +263,187 @@ export const deleteUser = async (req, res) => {
     }
 };
 
+//Admin Auth Controller 
+export const registerAdmin = async (req, res) => {
+    try {
+        const { fullname, email, password } = req.body;
+        if (!fullname || !email || !password) {
+            return res.status(400).json({ message: "All fields required" });
+        }
+        
+        let admins = await readJsonFromS3("admins");
+        const exist = admins.find(a => a.email === email);
+        if (exist) {
+            return res.status(400).json({ message: "Admin already exists" });
+        }
+        const hashedPassword = await bcrypt.hash(password, 10);
+        const newAdmin = {
+            id: Date.now().toString(),
+            fullname,
+            email,
+            password: hashedPassword
+        };
+        admins.push(newAdmin);
+        await writeJsonToS3("admins", admins);
+        res.json({
+            message: "Admin registered successfully",
+            admin: {
+                id: newAdmin.id,
+                fullname: newAdmin.fullname,
+                email: newAdmin.email
+            }
+        });
+    } catch (err) {
+        console.log(err);
+        res.status(500).json({ message: "Server error" });
+    }
+}; 
+export const loginAdmin = async (req, res) => {
+    try {
+        const { email, password } = req.body;
+        if (!email || !password) {
+            return res.status(400).json({ message: "Email & password required" });
+        }
+        let admins = await readJsonFromS3("admins");
+        const admin = admins.find(a => a.email === email);
+        if (!admin) {
+            return res.status(400).json({ message: "Admin not found" });
+        }       
+        const isMatch = await bcrypt.compare(password, admin.password);
+        if (!isMatch) {
+            return res.status(400).json({ message: "Invalid password" });
+        }
+        const token = jwt.sign(
+            {
+                id: admin.id,
+                email: admin.email,
+                isAdmin: true
+            },
+            process.env.SECRET_KEY || "jWttoken",
+            {
+                expiresIn: "7d"
+            }
+        );
+        res.json({
+            message: "Login successful",
+            token,
+            admin: {
+                id: admin.id,
+                fullname: admin.fullname,
+                email: admin.email
+            }
+        });
+    } catch (err) {
+        console.log(err);
+        res.status(500).json({ message: "Server error" });
+    }
+};
+export const updateAdmin = async (req, res) => {
+    try {
+        const { id } = req.params;
+        const { fullname, email, password } = req.body;
+        let admins = await readJsonFromS3("admins");
+        const adminIndex = admins.findIndex(a => a.id === id);
+        if (adminIndex === -1) {
+            return res.status(404).json({ message: "Admin not found" });
+        }
+        if (fullname) admins[adminIndex].fullname = fullname;
+        if (email) admins[adminIndex].email = email;
+        if (password) {
+            const hashedPassword = await bcrypt.hash(password, 10);
+            admins[adminIndex].password = hashedPassword;
+        }
+        await writeJsonToS3("admins", admins);
+        res.json({
+            message: "Admin updated successfully",
+            admin: {
+                id: admins[adminIndex].id,
+                fullname: admins[adminIndex].fullname,
+                email: admins[adminIndex].email
+            }
+        });
+    } catch (err) {
+        console.log(err);
+        res.status(500).json({ message: "Server error" });
+    }
+};
 
+//contact us controller
+export const contactUs = async (req, res) => {
+    try {
+        const { fullname, email, message,phone,subject } = req.body;
+        if (!fullname || !email || !message || !phone || !subject) {
+            return res.status(400).json({ message: "All fields required" });
+        }
+        let contacts = await readJsonFromS3("contacts");
+        const newContact = {
+            id: Date.now().toString(),
+            fullname,
+            email,
+            phone,
+            subject,
+            message
+        };
+        contacts.push(newContact);
+        await writeJsonToS3("contacts", contacts);
+        res.json({
+            message: "Message received successfully",
+            contact: newContact
+        });
+    }       
+        catch (err) {   
+        console.log(err);
+        res.status(500).json({ message: "Server error" });
+    }
+};  
+export const getContacts = async (req, res) => {
+    try {
+        let contacts = await readJsonFromS3("contacts");
+        res.json({
+            contacts
+        });
+    }
+        catch (err) {
+        console.log(err);
+        res.status(500).json({ message: "Server error" });
+    }
+};
+
+// user Subscription Controller
+export const subscription = async (req, res) => {
+    try {
+        const { email } = req.body; 
+        if (!email) {
+            return res.status(400).json({ message: "Email required" });
+        } 
+        let subscribers = await readJsonFromS3("subscribers"); 
+        if (subscribers.includes(email)) {
+            return res.status(400).json({ message: "Already subscribed" });
+        } 
+        subscribers.push(email);
+        await writeJsonToS3("subscribers", subscribers); 
+        res.json({
+            message: "Subscribed successfully"
+        });  
+    } catch (err) {
+        console.log(err);
+        res.status(500).json({ message: "Server error" });
+    }
+};
+
+export const getsubscribers = async (req, res) => {
+    try {
+        let subscribers = await readJsonFromS3("subscribers");
+        res.json({
+            subscribers
+        });
+    } catch (err) {
+        console.log(err);
+        res.status(500).json({ message: "Server error" });  
+    }
+};
+
+// save json data controller
 export const startSaving = async (req, res) => {
     console.log(" POST /api/save hit");
     console.log("Request body:", req.body);
@@ -257,6 +460,7 @@ export const startSaving = async (req, res) => {
         message: "Data saving started"
     });
 };
+// get json data cotroller
 export const getData = async (req, res) => {
     
     const { collection } = req.params;
@@ -326,6 +530,7 @@ export const getData = async (req, res) => {
     }
 };
 
+// search and filter  controller
 export const searchData = async (req, res) => {
     try {
         const { collection } = req.params;
@@ -442,16 +647,15 @@ export const searchData = async (req, res) => {
 
         let result = allColleges;
 
-        // 🔍 APPLY SEARCH
+        //  APPLY SEARCH
         if (search) {
             result = result.filter(item =>
                 deepSearch(item, search)
             );
         }
 
-        console.log("AFTER SEARCH:", result.length);
-
-        // 🎯 APPLY FILTERS (ANY FIELD)
+        
+        //  APPLY FILTERS (ANY FIELD)
         Object.keys(filters).forEach(field => {
             const value = String(filters[field]).toLowerCase().trim();
 

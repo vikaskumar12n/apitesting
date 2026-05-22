@@ -29,27 +29,22 @@ export const listObjects = async (prefix) => {
 
   return response.Contents || [];  
 };
-
-// ✅ READ JSON
+ 
 export const readJsonFromS3 = async (key) => {
     try {
         const data = await s3.send(new GetObjectCommand({
             Bucket: process.env.AWS_BUCKET_NAME,
             Key: key,
-        }));
-
-        if (!data.Body) return [];
-
+        })); 
+        if (!data.Body) return []; 
         const body = await streamToString(data.Body);
-        return JSON.parse(body);
-
+        return JSON.parse(body); 
     } catch (err) {
         if (err.name === "NoSuchKey") return []; // first time file
         throw err;
     }
 };
-
-// ✅ WRITE JSON
+ 
 export const writeJsonToS3 = async (key, data) => {
     await s3.send(new PutObjectCommand({
         Bucket: process.env.AWS_BUCKET_NAME,
@@ -58,3 +53,8 @@ export const writeJsonToS3 = async (key, data) => {
         ContentType: "application/json",
     }));
 };
+
+
+ 
+
+ 

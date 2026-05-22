@@ -5,6 +5,7 @@ import {
     updateResume,
     Enquery,
     getEnquiryById
+   
 } from "../controller/resumeController.js";
 import {generatePDF} from "../controller/pdfgenerate.js"
 
@@ -21,5 +22,6 @@ route.get("/resume/pdf", verifyToken, generatePDF);
 // Query
 route.post("/query",Enquery)
 route.get("/enquiry/:id",getEnquiryById)
+ 
 
 export default route;
