@@ -197,6 +197,29 @@ export const loginUser = async (req, res) => {
         res.status(500).json({ message: "Server error" });
     }
 }; 
+export const getUsers = async (req, res) => {
+    try {
+        let users = await readJsonFromS3("users");
+        
+        //  remove passwords
+        users = users.map(u => ({
+            id: u.id,
+            fullname: u.fullname,
+            password: u.password   , //  never send password
+            email: u.email,
+            mobile: u.mobile,
+            address: u.address
+        }));
+
+        res.json({
+            users
+        });
+    }
+    catch (err) {
+        console.log(err);
+        res.status(500).json({ message: "Server error" });
+    }
+};
 export const updateUser = async (req, res) => {
     try {
         const { id } = req.params;

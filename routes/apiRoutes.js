@@ -1,12 +1,13 @@
 import express from "express";
 import { startSaving, getData,registerAdmin,loginAdmin,updateAdmin,
-    contactUs,
+    contactUs,getUsers,
     getContacts, subscription,getsubscribers,registerUser,loginUser,searchData,updateUser,deleteUser} from "../controller/apiController.js";
  
 const router = express.Router();
 //User register and login
 router.post("/register", registerUser);
 router.post("/login", loginUser);
+router.get("/users", getUsers);
 router.put("/update-user/:id", updateUser);
 router.delete("/delete-user/:id", deleteUser);
 //user subscription and data handling
