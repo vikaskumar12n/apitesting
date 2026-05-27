@@ -1,36 +1,41 @@
-import express from "express"
- 
-import cors from "cors"
- import resumeRoutes from "./routes/resumeRoutes.js"
-import apiRouter from "./routes/apiRoutes.js"
-import routers from "./routes/review.js"
+import express from "express";
+import cors from "cors";
+import resumeRoutes from "./routes/resumeRoutes.js";
+import apiRouter from "./routes/apiRoutes.js";
+import routers from "./routes/review.js";
 import dotenv from "dotenv";
 import path from "path";
-
 import { fileURLToPath } from "url";
- 
+
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
- 
-dotenv.config({ path: path.join(__dirname, ".env") }); 
-const app=express()
- 
+
+dotenv.config({ path: path.join(__dirname, ".env") });
+
+const app = express();
+
 app.use(cors({
-    origin: ['http://localhost:5173', 'http://localhost:3000',
-           'https://rb-frontend-rosy.vercel.app',      
+    origin: [
+        'http://localhost:5173',
+        'http://localhost:3000',
+        'https://rb-frontend-rosy.vercel.app',
         'https://rb-frontend-ea4w.vercel.app',
-         'https://edumitrahub.com'
-    ], // Frontend URLs
+        'https://edumitrahub.com',
+        'https://www.edumitrahub.com',
+        'https://resume.aserps.in' //   new domain added
+    ],
     methods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS'],
     allowedHeaders: ['Content-Type', 'Authorization'],
     credentials: true
-}))
+}));
+
 app.use(express.json({ limit: "50mb" }));
 app.use(express.urlencoded({ limit: "50mb", extended: true }));
-app.use("/api",resumeRoutes)
-app.use("/api",routers)
-app.use("/api",apiRouter)
-app.listen(process.env.PORT,()=>{
+
+app.use("/api", resumeRoutes);
+app.use("/api", routers);
+app.use("/api", apiRouter);
+
+app.listen(process.env.PORT, () => {
     console.log(`server is running port ${process.env.PORT}`);
-    
-})
+});
