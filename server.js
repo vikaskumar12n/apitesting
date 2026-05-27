@@ -22,7 +22,8 @@ app.use(cors({
         'https://rb-frontend-ea4w.vercel.app',
         'https://edumitrahub.com',
         'https://www.edumitrahub.com',
-        'https://resume.aserps.in' //   new domain added
+        'https://resume.aserps.in', //   new domain added,
+        'http://13.202.253.175:3000'
     ],
     methods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS'],
     allowedHeaders: ['Content-Type', 'Authorization'],
