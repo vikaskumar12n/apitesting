@@ -89,278 +89,739 @@ const saveLargeData = async (url) => {
     }
 };
 
-// User Auth Controller 
+// User Auth Controller
+const USER_ROLES = new Set(["user", "college"]);
+
+const normalizeUserRole = (role) => {
+    const normalizedRole = String(role || "").trim().toLowerCase();
+    return USER_ROLES.has(normalizedRole) ? normalizedRole : null;
+};
+
+const toSafeUser = (user) => ({
+    id: user.id,
+    fullname: user.fullname,
+    email: user.email,
+    mobile: user.mobile,
+    address: user.address,
+    role: normalizeUserRole(user.role) || "user"
+});
+
+const createUserToken = (user) => jwt.sign(
+    {
+        id: user.id,
+        email: user.email,
+        role: normalizeUserRole(user.role) || "user"
+    },
+    process.env.SECRET_KEY || "jWttoken",
+    { expiresIn: "7d" }
+);
+
+const ACCOUNT_ROLES = new Set(["user", "college", "admin"]);
+
+const normalizeAccountRole = (role) => {
+    const normalizedRole = String(role || "").trim().toLowerCase();
+    return ACCOUNT_ROLES.has(normalizedRole) ? normalizedRole : null;
+};
+
+const toSafeAdmin = (admin) => ({
+    id: admin.id,
+    fullname: admin.fullname,
+    email: admin.email,
+    mobile: admin.mobile || "",
+    address: admin.address || "",
+    role: "admin"
+});
+
 export const registerUser = async (req, res) => {
     try {
-        const { fullname, email, password, confirmPassword, mobile, address } = req.body;
-
-        // validation
-        if (!fullname || !email || !password || !confirmPassword || !mobile || !address) {
-            return res.status(400).json({ message: "All fields required" });
-        }
-
-        // password match check
-        if (password !== confirmPassword) {
-            return res.status(400).json({ message: "Passwords do not match" });
-        }
-
-        // read users from S3
-        let users = await readJsonFromS3("users");
-
-        // check existing user
-        const exist = users.find(u => u.email === email);
-
-        if (exist) {
-            return res.status(400).json({ message: "User already exists" });
-        }
-
-        // hash password
-        const hashedPassword = await bcrypt.hash(password, 10);
-
-        const newUser = {
-            id: Date.now().toString(),
+        const {
             fullname,
             email,
+            password,
+            confirmPassword,
             mobile,
             address,
-            password: hashedPassword
+            role
+        } = req.body;
+
+        const requestedRole = role === undefined
+            ? "user"
+            : normalizeAccountRole(role);
+
+        if (!requestedRole) {
+            return res.status(400).json({
+                message: "Role must be user, college, or admin"
+            });
+        }
+
+        const requiresContactDetails = requestedRole !== "admin";
+
+        if (
+            !fullname?.trim() ||
+            !email?.trim() ||
+            !password ||
+            !confirmPassword ||
+            (requiresContactDetails && (!mobile?.trim() || !address?.trim()))
+        ) {
+            return res.status(400).json({
+                message: requiresContactDetails
+                    ? "All fields are required"
+                    : "Full name, email, password, and confirm password are required"
+            });
+        }
+
+        if (password !== confirmPassword) {
+            return res.status(400).json({
+                message: "Passwords do not match"
+            });
+        }
+
+        let [users, admins] = await Promise.all([
+            readJsonFromS3("users"),
+            readJsonFromS3("admins")
+        ]);
+
+        if (!Array.isArray(users)) {
+            users = [];
+        }
+        if (!Array.isArray(admins)) {
+            admins = [];
+        }
+
+        const requesterIsAdmin =
+            req.user?.role === "admin" || req.user?.isAdmin === true;
+        const isFirstAdmin = requestedRole === "admin" && admins.length === 0;
+
+        if (requestedRole !== "user" && !requesterIsAdmin && !isFirstAdmin) {
+            return res.status(403).json({
+                message: "Only an admin can register college or admin accounts"
+            });
+        }
+
+        const normalizedEmail = email.trim().toLowerCase();
+        const emailExists =
+            users.some(account => account.email?.toLowerCase() === normalizedEmail) ||
+            admins.some(account => account.email?.toLowerCase() === normalizedEmail);
+
+        if (emailExists) {
+            return res.status(400).json({
+                message: "Account already exists"
+            });
+        }
+
+        const hashedPassword = await bcrypt.hash(password, 10);
+        let safeAccount;
+
+        if (requestedRole === "admin") {
+            const newAdmin = {
+                id: Date.now().toString(),
+                fullname: fullname.trim(),
+                email: normalizedEmail,
+                password: hashedPassword,
+                role: "admin",
+                mobile: mobile?.trim() || "",
+                address: address?.trim() || ""
+            };
+
+            admins.push(newAdmin);
+            await writeJsonToS3("admins", admins);
+            safeAccount = toSafeAdmin(newAdmin);
+        } else {
+            const newUser = {
+                id: Date.now().toString(),
+                fullname: fullname.trim(),
+                email: normalizedEmail,
+                mobile: mobile.trim(),
+                address: address.trim(),
+                password: hashedPassword,
+                role: requestedRole
+            };
+
+            users.push(newUser);
+            await writeJsonToS3("users", users);
+            safeAccount = toSafeUser(newUser);
+        }
+
+        const successMessages = {
+            user: "User registered successfully",
+            college: "College account created successfully",
+            admin: "Admin registered successfully"
         };
 
-        users.push(newUser);
-
-        // save to S3
-        await writeJsonToS3("users", users);
-
-        res.json({
-            message: "User registered successfully",
-            user: {
-                id: newUser.id,
-                fullname: newUser.fullname,
-                email: newUser.email,
-                mobile: newUser.mobile,
-                address: newUser.address
-            }
+        return res.status(201).json({
+            message: successMessages[requestedRole],
+            role: requestedRole,
+            user: safeAccount
         });
-
     } catch (err) {
-        console.log(err);
-        res.status(500).json({ message: "Server error" });
+        console.error("Register account error:", err);
+
+        return res.status(500).json({
+            message: "Server error",
+            error: err.message
+        });
     }
-}; 
+};
 export const loginUser = async (req, res) => {
     try {
         const { email, password } = req.body;
 
-        if (!email || !password) {
-            return res.status(400).json({ message: "Email & password required" });
+        if (!email?.trim() || !password) {
+            return res.status(400).json({
+                message: "Email and password are required"
+            });
         }
 
-        let users = await readJsonFromS3("users");
+        let [users, admins] = await Promise.all([
+            readJsonFromS3("users"),
+            readJsonFromS3("admins")
+        ]);
 
-        const user = users.find(u => u.email === email);
-
-        if (!user) {
-            return res.status(400).json({ message: "User not found" });
+        if (!Array.isArray(users)) {
+            users = [];
+        }
+        if (!Array.isArray(admins)) {
+            admins = [];
         }
 
-        const isMatch = await bcrypt.compare(password, user.password);
-
-        if (!isMatch) {
-            return res.status(400).json({ message: "Invalid password" });
-        }
-
-        const token = jwt.sign(
-            {
-                id: user.id,
-                email: user.email
-            },
-            process.env.SECRET_KEY || "jWttoken",
-            {
-                expiresIn: "7d"
-            }
+        const normalizedEmail = email.trim().toLowerCase();
+        const user = users.find(
+            storedUser => storedUser.email?.toLowerCase() === normalizedEmail
+        );
+        const admin = admins.find(
+            storedAdmin => storedAdmin.email?.toLowerCase() === normalizedEmail
         );
 
-        res.json({
-            message: "Login successful",
-            token,
-            user: {
-                id: user.id,
-                fullname: user.fullname,
-                email: user.email,
-                mobile: user.mobile,
-                address: user.address
-            }
-        });
+        if (!user && !admin) {
+            return res.status(404).json({
+                message: "Account not found"
+            });
+        }
 
+        if (admin && await bcrypt.compare(password, admin.password)) {
+            const safeAdmin = {
+                id: admin.id,
+                fullname: admin.fullname,
+                email: admin.email,
+                role: "admin"
+            };
+            const token = jwt.sign(
+                {
+                    id: safeAdmin.id,
+                    email: safeAdmin.email,
+                    role: "admin",
+                    isAdmin: true
+                },
+                process.env.SECRET_KEY || "jWttoken",
+                { expiresIn: "7d" }
+            );
+
+            return res.status(200).json({
+                message: "Login successful",
+                token,
+                role: "admin",
+                user: safeAdmin
+            });
+        }
+
+        if (user && await bcrypt.compare(password, user.password)) {
+            const safeUser = toSafeUser(user);
+            const token = createUserToken(safeUser);
+
+            return res.status(200).json({
+                message: "Login successful",
+                token,
+                role: safeUser.role,
+                user: safeUser
+            });
+        }
+
+        return res.status(400).json({
+            message: "Invalid password"
+        });
     } catch (err) {
-        console.log(err);
-        res.status(500).json({ message: "Server error" });
+        console.error("Login error:", err);
+
+        return res.status(500).json({
+            message: "Server error",
+            error: err.message
+        });
     }
-}; 
+};
 export const getUsers = async (req, res) => {
     try {
         let users = await readJsonFromS3("users");
-        
-        //  remove passwords
-        users = users.map(u => ({
-            id: u.id,
-            fullname: u.fullname,
-            password: u.password   , //  never send password
-            email: u.email,
-            mobile: u.mobile,
-            address: u.address
+
+        if (!Array.isArray(users)) {
+            users = [];
+        }
+
+        const safeUsers = users.map(user => ({
+            id: user.id,
+            fullname: user.fullname,
+            email: user.email,
+            mobile: user.mobile,
+            address: user.address,
+            role: normalizeUserRole(user.role) || "user"
         }));
 
-        res.json({
-            users
+        return res.status(200).json({
+            message: "Users fetched successfully",
+            count: safeUsers.length,
+            users: safeUsers
         });
-    }
-    catch (err) {
-        console.log(err);
-        res.status(500).json({ message: "Server error" });
+
+    } catch (err) {
+        console.error("Get users error:", err);
+
+        return res.status(500).json({
+            message: "Server error",
+            error: err.message
+        });
     }
 };
 export const updateUser = async (req, res) => {
     try {
         const { id } = req.params;
-        const { fullname, email, password, mobile, address } = req.body;
+        const isAdmin = req.user?.role === "admin" || req.user?.isAdmin === true;
+        const isOwnAccount = String(req.user?.id) === String(id);
+
+        if (!isAdmin && !isOwnAccount) {
+            return res.status(403).json({
+                message: "You cannot update this account"
+            });
+        }
+
+        const {
+            fullname,
+            email,
+            password,
+            mobile,
+            address,
+            role
+        } = req.body;
 
         let users = await readJsonFromS3("users");
 
-        const userIndex = users.findIndex(u => u.id === id);
-
-        if (userIndex === -1) {
-            return res.status(404).json({ message: "User not found" });
+        if (!Array.isArray(users)) {
+            users = [];
         }
 
-        // update fields
-        if (fullname) users[userIndex].fullname = fullname;
-        if (email) users[userIndex].email = email;
-        if (mobile) users[userIndex].mobile = mobile;
-        if (address) users[userIndex].address = address;
+        const userIndex = users.findIndex(
+            user => String(user.id) === String(id)
+        );
+
+        if (userIndex === -1) {
+            return res.status(404).json({
+                message: "User not found"
+            });
+        }
+
+        if (email) {
+            const normalizedEmail = email.trim().toLowerCase();
+
+            const emailExists = users.some(
+                (user, index) =>
+                    index !== userIndex &&
+                    user.email?.toLowerCase() === normalizedEmail
+            );
+
+            if (emailExists) {
+                return res.status(400).json({
+                    message: "Email already exists"
+                });
+            }
+
+            users[userIndex].email = normalizedEmail;
+        }
+
+        if (fullname?.trim()) {
+            users[userIndex].fullname = fullname.trim();
+        }
+
+        if (mobile?.trim()) {
+            users[userIndex].mobile = mobile.trim();
+        }
+
+        if (address?.trim()) {
+            users[userIndex].address = address.trim();
+        }
+
+        if (role?.trim()) {
+            if (!isAdmin) {
+                return res.status(403).json({
+                    message: "Only an admin can change a user role"
+                });
+            }
+
+            const normalizedRole = normalizeUserRole(role);
+
+            if (!normalizedRole) {
+                return res.status(400).json({
+                    message: "Role must be user or college"
+                });
+            }
+
+            users[userIndex].role = normalizedRole;
+        }
 
         if (password) {
-            const hashedPassword = await bcrypt.hash(password, 10);
-            users[userIndex].password = hashedPassword;
+            users[userIndex].password = await bcrypt.hash(password, 10);
+        }
+
+        // Purane user ke andar role na ho to default role
+        if (!users[userIndex].role) {
+            users[userIndex].role = "user";
         }
 
         await writeJsonToS3("users", users);
 
-        res.json({
+        return res.status(200).json({
             message: "User updated successfully",
             user: {
                 id: users[userIndex].id,
                 fullname: users[userIndex].fullname,
                 email: users[userIndex].email,
                 mobile: users[userIndex].mobile,
-                address: users[userIndex].address
+                address: users[userIndex].address,
+                role: users[userIndex].role
             }
         });
 
     } catch (err) {
-        console.log(err);
-        res.status(500).json({ message: "Server error" });
+        console.error("Update user error:", err);
+
+        return res.status(500).json({
+            message: "Server error",
+            error: err.message
+        });
     }
-}; 
+};
 export const deleteUser = async (req, res) => {
     try {
         const { id } = req.params;
 
         let users = await readJsonFromS3("users");
 
-        const newUsers = users.filter(u => u.id !== id);
-
-        if (users.length === newUsers.length) {
-            return res.status(404).json({ message: "User not found" });
+        if (!Array.isArray(users)) {
+            users = [];
         }
 
-        await writeJsonToS3("users", newUsers);
+        const userExists = users.some(
+            user => String(user.id) === String(id)
+        );
 
-        res.json({
+        if (!userExists) {
+            return res.status(404).json({
+                message: "User not found"
+            });
+        }
+
+        const updatedUsers = users.filter(
+            user => String(user.id) !== String(id)
+        );
+
+        await writeJsonToS3("users", updatedUsers);
+
+        return res.status(200).json({
             message: "User deleted successfully"
         });
 
     } catch (err) {
-        console.log(err);
-        res.status(500).json({ message: "Server error" });
+        console.error("Delete user error:", err);
+
+        return res.status(500).json({
+            message: "Server error",
+            error: err.message
+        });
     }
 };
 
-//Admin Auth Controller 
-export const registerAdmin = async (req, res) => {
+
+
+
+
+
+
+
+// User college applications
+const toApplicationText = (value, maxLength = 300) =>
+    String(value || "").trim().slice(0, maxLength);
+
+const toSafeApplication = (application) => ({
+    id: application.id,
+    collegeId: application.collegeId,
+    collegeName: application.collegeName,
+    stream: application.stream,
+    location: application.location,
+    image: application.image,
+    detailsPath: application.detailsPath,
+    status: application.status,
+    appliedAt: application.appliedAt,
+    assignedCollegeId: application.assignedCollegeId || null,
+    assignedCollegeName: application.assignedCollegeName || null,
+    assignedAt: application.assignedAt || null
+});
+
+const toSafeApplicant = (user) => user ? ({
+    id: user.id,
+    fullname: user.fullname,
+    email: user.email,
+    mobile: user.mobile,
+    address: user.address,
+    role: "user"
+}) : null;
+
+const withApplicationRelations = (application, users) => {
+    const applicant = users.find(user =>
+        String(user.id) === String(application.userId) &&
+        (normalizeUserRole(user.role) || "user") === "user"
+    );
+    const assignedCollege = users.find(user =>
+        String(user.id) === String(application.assignedCollegeId) &&
+        normalizeUserRole(user.role) === "college"
+    );
+
+    return {
+        ...toSafeApplication(application),
+        applicant: toSafeApplicant(applicant),
+        assignedCollege: assignedCollege ? toSafeUser(assignedCollege) : null
+    };
+};
+
+export const applyToCollege = async (req, res) => {
     try {
-        const { fullname, email, password } = req.body;
-        if (!fullname || !email || !password) {
-            return res.status(400).json({ message: "All fields required" });
+        const collegeId = toApplicationText(req.body.collegeId, 100);
+        const collegeName = toApplicationText(req.body.collegeName, 200);
+        const stream = toApplicationText(req.body.stream, 80).toLowerCase();
+        const location = toApplicationText(req.body.location, 200);
+        const image = toApplicationText(req.body.image, 1000);
+        const requestedDetailsPath = toApplicationText(req.body.detailsPath, 500);
+
+        if (!collegeId || !collegeName || !stream) {
+            return res.status(400).json({
+                message: "College ID, college name, and stream are required"
+            });
         }
-        
-        let admins = await readJsonFromS3("admins");
-        const exist = admins.find(a => a.email === email);
-        if (exist) {
-            return res.status(400).json({ message: "Admin already exists" });
+
+        let applications = await readJsonFromS3("applications");
+
+        if (!Array.isArray(applications)) {
+            applications = [];
         }
-        const hashedPassword = await bcrypt.hash(password, 10);
-        const newAdmin = {
-            id: Date.now().toString(),
-            fullname,
-            email,
-            password: hashedPassword
-        };
-        admins.push(newAdmin);
-        await writeJsonToS3("admins", admins);
-        res.json({
-            message: "Admin registered successfully",
-            admin: {
-                id: newAdmin.id,
-                fullname: newAdmin.fullname,
-                email: newAdmin.email
-            }
-        });
-    } catch (err) {
-        console.log(err);
-        res.status(500).json({ message: "Server error" });
-    }
-}; 
-export const loginAdmin = async (req, res) => {
-    try {
-        const { email, password } = req.body;
-        if (!email || !password) {
-            return res.status(400).json({ message: "Email & password required" });
-        }
-        let admins = await readJsonFromS3("admins");
-        const admin = admins.find(a => a.email === email);
-        if (!admin) {
-            return res.status(400).json({ message: "Admin not found" });
-        }       
-        const isMatch = await bcrypt.compare(password, admin.password);
-        if (!isMatch) {
-            return res.status(400).json({ message: "Invalid password" });
-        }
-        const token = jwt.sign(
-            {
-                id: admin.id,
-                email: admin.email,
-                isAdmin: true
-            },
-            process.env.SECRET_KEY || "jWttoken",
-            {
-                expiresIn: "7d"
-            }
+
+        const userId = String(req.user.id);
+        const applicationKey = `${stream}:${collegeId}`;
+        const existingApplication = applications.find(application =>
+            String(application.userId) === userId &&
+            (application.applicationKey === applicationKey ||
+                (String(application.collegeId) === collegeId && application.stream === stream))
         );
-        res.json({
-            message: "Login successful",
-            token,
-            admin: {
-                id: admin.id,
-                fullname: admin.fullname,
-                email: admin.email
-            }
+
+        if (existingApplication) {
+            return res.status(200).json({
+                message: "You have already applied to this college",
+                alreadyApplied: true,
+                application: toSafeApplication(existingApplication)
+            });
+        }
+
+        const detailsPath = requestedDetailsPath.startsWith("/college/")
+            ? requestedDetailsPath
+            : `/college/${stream}/${collegeId}`;
+        const newApplication = {
+            id: `${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
+            userId,
+            applicationKey,
+            collegeId,
+            collegeName,
+            stream,
+            location,
+            image,
+            detailsPath,
+            status: "applied",
+            appliedAt: new Date().toISOString()
+        };
+
+        applications.push(newApplication);
+        await writeJsonToS3("applications", applications);
+
+        return res.status(201).json({
+            message: "College application added successfully",
+            alreadyApplied: false,
+            application: toSafeApplication(newApplication)
         });
     } catch (err) {
-        console.log(err);
-        res.status(500).json({ message: "Server error" });
+        console.error("Apply to college error:", err);
+
+        return res.status(500).json({
+            message: "Server error",
+            error: err.message
+        });
     }
 };
+
+export const getMyApplications = async (req, res) => {
+    try {
+        let applications = await readJsonFromS3("applications");
+
+        if (!Array.isArray(applications)) {
+            applications = [];
+        }
+
+        const userId = String(req.user.id);
+        const userApplications = applications
+            .filter(application => String(application.userId) === userId)
+            .sort((first, second) =>
+                new Date(second.appliedAt || 0) - new Date(first.appliedAt || 0)
+            )
+            .map(toSafeApplication);
+
+        return res.status(200).json({
+            message: "Applications fetched successfully",
+            count: userApplications.length,
+            applications: userApplications
+        });
+    } catch (err) {
+        console.error("Get applications error:", err);
+
+        return res.status(500).json({
+            message: "Server error",
+            error: err.message
+        });
+    }
+};
+export const getAllApplications = async (req, res) => {
+    try {
+        let [applications, users] = await Promise.all([
+            readJsonFromS3("applications"),
+            readJsonFromS3("users")
+        ]);
+
+        if (!Array.isArray(applications)) applications = [];
+        if (!Array.isArray(users)) users = [];
+
+        const detailedApplications = applications
+            .sort((first, second) =>
+                new Date(second.appliedAt || 0) - new Date(first.appliedAt || 0)
+            )
+            .map(application => withApplicationRelations(application, users));
+        const colleges = users
+            .filter(user => normalizeUserRole(user.role) === "college")
+            .map(toSafeUser);
+
+        return res.status(200).json({
+            message: "Applications fetched successfully",
+            count: detailedApplications.length,
+            applications: detailedApplications,
+            colleges
+        });
+    } catch (err) {
+        console.error("Admin get applications error:", err);
+
+        return res.status(500).json({
+            message: "Server error",
+            error: err.message
+        });
+    }
+};
+
+export const assignApplicationToCollege = async (req, res) => {
+    try {
+        const applicationId = String(req.params.id || "").trim();
+        const collegeId = String(req.body.collegeId || "").trim();
+
+        if (!applicationId || !collegeId) {
+            return res.status(400).json({
+                message: "Application ID and college account are required"
+            });
+        }
+
+        let [applications, users] = await Promise.all([
+            readJsonFromS3("applications"),
+            readJsonFromS3("users")
+        ]);
+
+        if (!Array.isArray(applications)) applications = [];
+        if (!Array.isArray(users)) users = [];
+
+        const applicationIndex = applications.findIndex(application =>
+            String(application.id) === applicationId
+        );
+
+        if (applicationIndex === -1) {
+            return res.status(404).json({ message: "Application not found" });
+        }
+
+        const collegeAccount = users.find(user =>
+            String(user.id) === collegeId &&
+            normalizeUserRole(user.role) === "college"
+        );
+
+        if (!collegeAccount) {
+            return res.status(404).json({
+                message: "College account not found"
+            });
+        }
+
+        applications[applicationIndex] = {
+            ...applications[applicationIndex],
+            assignedCollegeId: String(collegeAccount.id),
+            assignedCollegeName: collegeAccount.fullname,
+            assignedAt: new Date().toISOString(),
+            assignedBy: String(req.user.id),
+            status: "assigned"
+        };
+
+        await writeJsonToS3("applications", applications);
+
+        return res.status(200).json({
+            message: "Student application assigned successfully",
+            application: withApplicationRelations(applications[applicationIndex], users)
+        });
+    } catch (err) {
+        console.error("Assign application error:", err);
+
+        return res.status(500).json({
+            message: "Server error",
+            error: err.message
+        });
+    }
+};
+
+export const getCollegeAssignedApplications = async (req, res) => {
+    try {
+        let [applications, users] = await Promise.all([
+            readJsonFromS3("applications"),
+            readJsonFromS3("users")
+        ]);
+
+        if (!Array.isArray(applications)) applications = [];
+        if (!Array.isArray(users)) users = [];
+
+        const collegeId = String(req.user.id);
+        const assignedApplications = applications
+            .filter(application => String(application.assignedCollegeId) === collegeId)
+            .sort((first, second) =>
+                new Date(second.assignedAt || 0) - new Date(first.assignedAt || 0)
+            )
+            .map(application => withApplicationRelations(application, users));
+
+        return res.status(200).json({
+            message: "Assigned students fetched successfully",
+            count: assignedApplications.length,
+            applications: assignedApplications
+        });
+    } catch (err) {
+        console.error("College get assigned applications error:", err);
+
+        return res.status(500).json({
+            message: "Server error",
+            error: err.message
+        });
+    }
+};
+//Admin Auth Controller
 export const updateAdmin = async (req, res) => {
     try {
         const { id } = req.params;
